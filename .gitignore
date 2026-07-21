@@ -1,0 +1,39 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Project specific binary
+issueweave
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Dependency directories
+# vendor/
+
+# Environment Variables (Critical for keeping GitHub Personal Access Tokens safe)
+.env
+.env.*
+*.local
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
