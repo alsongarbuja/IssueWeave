@@ -30,7 +30,7 @@ func getGithubClient() *github.Client {
 
 // fetchMainIssue retrieves the details of the root issue from GitHub.
 // It uses the provided client to query the specified owner and repo by issueId,
-// returning an error if the API request fails.
+/// returning the issue data and error if api fails.
 func fetchMainIssue(client *github.Client, owner, repo string, issueId int) (IssueData, error) {
 	ctx := context.Background()
 
@@ -39,18 +39,21 @@ func fetchMainIssue(client *github.Client, owner, repo string, issueId int) (Iss
 		return IssueData{}, err
 	}
 
+	comments, _ := fetchIssueComments(client, owner, repo, issueId)
+
 	return IssueData{
 		Number: issue.GetNumber(),
 		Title: issue.GetTitle(),
 		State: issue.GetState(),
 		URL: issue.GetHTMLURL(),
 		Date: issue.GetCreatedAt().Format("2006-01-02 15:04"),
+		Comments: comments,
 	}, nil
 }
 
 // fetchCrossReferences paginates through the GitHub Timeline API for a specific issue
 // to identify and process both explicit cross-references and inline comment mentions.
-// It returns an error if the network request or pagination fails.
+// It returns cross referenced and comment referenced issues and an error if the network request or pagination fails.
 func fetchCrossReferences(client *github.Client, owner, repo string, issueId int) ([]IssueData, []IssueData, error) {
 	ctx := context.Background()
 	opts := &github.ListOptions{PerPage: 100}
@@ -95,6 +98,13 @@ func fetchBatchedIssues(owner, repo string, uniqueIssues map[string]bool) ([]Iss
 				title
 				url
 				state
+				comments(first: 20) {
+					nodes {
+						author { login }
+						body
+						createdAt
+					}
+				}
 			}
 		`, issueNumStr, issueNumStr)
 	}
@@ -109,14 +119,12 @@ func fetchBatchedIssues(owner, repo string, uniqueIssues map[string]bool) ([]Iss
 	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
-		fmt.Errorf("failed to marshal payload: %w", err)
-		return comment_references, err
+		return comment_references, fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", "https://api.github.com/graphql", bytes.NewBuffer(payloadBytes))
 	if err != nil {
-		fmt.Errorf("failed to create request: %w", err)
-		return comment_references, err
+		return comment_references, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	token := os.Getenv("GITHUB_TOKEN")
@@ -127,21 +135,18 @@ func fetchBatchedIssues(owner, repo string, uniqueIssues map[string]bool) ([]Iss
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Errorf("failed to execute request: %w", err)
-		return comment_references, err
+		return comment_references, fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Errorf("failed to read response: %w", err)
-		return comment_references, err
+		return comment_references, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	var result map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &result); err != nil {
-		fmt.Errorf("failed to parse JSON: %w", err)
-		return comment_references, err
+		return comment_references, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 
 	dataMap, ok := result["data"].(map[string]interface{})
@@ -163,6 +168,27 @@ func fetchBatchedIssues(owner, repo string, uniqueIssues map[string]bool) ([]Iss
 		issueNumberStr := strings.TrimPrefix(key, "issue")
 		issueNumber, _ := strconv.Atoi(issueNumberStr)
 
+		var comments []Comment
+		if commentsData, ok := issueMap["comments"].(map[string]interface{}); ok {
+			if nodes, ok := commentsData["nodes"].([]interface{}); ok {
+				for _, nodeInter := range nodes {
+					if nodeInter == nil { continue }
+					node := nodeInter.(map[string]interface{})
+
+					author := "Unknown"
+					if authorMap, ok := node["author"].(map[string]interface{}); ok && authorMap != nil {
+						author = fmt.Sprintf("%v", authorMap["login"])
+					}
+
+					comments = append(comments, Comment{
+						Author: author,
+						Body:   fmt.Sprintf("%v", node["body"]),
+						Date:   fmt.Sprintf("%v", node["createdAt"]),
+					})
+				}
+			}
+		}
+
 		comment_references = append(comment_references, IssueData{
 			Number: issueNumber,
 			Title:  fmt.Sprintf("%v", issueMap["title"]),
@@ -172,6 +198,36 @@ func fetchBatchedIssues(owner, repo string, uniqueIssues map[string]bool) ([]Iss
 	}
 
 	return comment_references, nil
+}
+
+// fetchIssueComments retreives the first 20 comments of the issue
+// It uses the provided client to query the specified owner and repo by issueId,
+// returning a list of comments and error if api fails.
+func fetchIssueComments(client *github.Client, owner, repo string, issueNumber int) ([]Comment, error) {
+	ctx := context.Background()
+	opts := &github.IssueListCommentsOptions{
+		ListOptions: github.ListOptions{PerPage: 20},
+	}
+
+	githubComments, _, err := client.Issues.ListComments(ctx, owner, repo, issueNumber, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	var comments []Comment
+	for _, c := range githubComments {
+		author := "Unknown"
+		if c.GetUser() != nil {
+			author = c.GetUser().GetLogin()
+		}
+		comments = append(comments, Comment {
+			Author: author,
+			Body: c.GetBody(),
+			Date: c.GetCreatedAt().Format("2006-01-02 15:04"),
+		})
+	}
+
+	return comments, nil
 }
 
 // processEvents iterates through an issue's timeline to extract and display
@@ -193,12 +249,15 @@ func processEvents(events []*github.Timeline, owner, repo string) ([]IssueData, 
 			if source != nil && source.GetIssue() != nil {
 				linkedIssue := source.GetIssue()
 
+				comments, _ := fetchIssueComments(getGithubClient(), owner, repo, linkedIssue.GetNumber())
+
 				direct_references = append(direct_references, IssueData{
 					Number: linkedIssue.GetNumber(),
 					Title:  linkedIssue.GetTitle(),
 					State:  linkedIssue.GetState(),
 					URL:    linkedIssue.GetHTMLURL(),
 					Date:   event.GetCreatedAt().Format("2006-01-02 15:04"),
+					Comments: comments,
 				})
 			}
 		}

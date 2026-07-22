@@ -1,5 +1,12 @@
 package cmd
 
+// Comment struct
+type Comment struct {
+	Author string `json:"author"`
+	Body string `json:"body"`
+	Date string `json:"date"`
+}
+
 // Single issue struct
 type IssueData struct {
 	Number int    `json:"number"`
@@ -7,6 +14,7 @@ type IssueData struct {
 	State  string `json:"state"`
 	URL    string `json:"url"`
 	Date   string `json:"date,omitempty"`
+	Comments []Comment `json:"comments"`
 }
 
 // WeaveResult
