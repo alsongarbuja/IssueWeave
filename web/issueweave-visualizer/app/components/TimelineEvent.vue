@@ -70,14 +70,32 @@
               #{{ issue.number }}
             </span>
           </h3>
-          <div class="text-sm text-[#8b949e] mt-3">
-            <a
-              :href="issue.url"
-              target="_blank"
-              class="text-[#58a6ff] hover:underline"
+        </div>
+
+        <div
+          v-if="issue.comments && issue.comments.length > 0"
+          class="border-t border-[#30363d] bg-[#0d1117] p-4"
+        >
+          <div class="flex flex-col gap-3">
+            <div
+              v-for="(comment, idx) in issue.comments"
+              :key="idx"
+              class="border border-[#30363d] rounded-md overflow-hidden"
             >
-              View on GitHub →
-            </a>
+              <div
+                class="bg-[#161b22] px-3 py-1.5 border-b border-[#30363d] text-xs text-[#8b949e] flex items-center gap-2"
+              >
+                <span class="font-semibold text-[#c9d1d9]">
+                  {{ comment.author }}
+                </span>
+                <span>commented</span>
+              </div>
+              <div class="p-3 text-sm text-[#c9d1d9] bg-[#0d1117]">
+                <p class="line-clamp-3 whitespace-pre-wrap font-sans">
+                  {{ comment.body }}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -86,6 +104,12 @@
 </template>
 
 <script setup lang="ts">
+interface CommentData {
+  author: string;
+  body: string;
+  date: string;
+}
+
 defineProps<{
   issue: {
     number: number;
@@ -93,6 +117,7 @@ defineProps<{
     state: string;
     url: string;
     date?: string;
+    comments?: CommentData[];
   };
   variant: "explicit" | "mention";
 }>();

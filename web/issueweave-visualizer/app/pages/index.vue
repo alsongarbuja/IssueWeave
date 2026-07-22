@@ -72,6 +72,37 @@
           </div>
         </header>
 
+        <div
+          v-if="data.main_issue.comments && data.main_issue.comments.length > 0"
+          class="mb-12 max-w-4xl"
+        >
+          <h3
+            class="text-[#8b949e] text-sm font-semibold mb-3 uppercase tracking-wider"
+          >
+            Main Issue Discussion
+          </h3>
+          <div class="flex flex-col gap-4">
+            <div
+              v-for="(comment, idx) in data.main_issue.comments"
+              :key="'root-comment-' + idx"
+              class="rounded-md border border-[#30363d] bg-[#0d1117] overflow-hidden"
+            >
+              <div
+                class="bg-[#161b22] px-4 py-2 border-b border-[#30363d] text-sm text-[#8b949e] flex items-center gap-2"
+              >
+                <span class="font-semibold text-[#c9d1d9]">
+                  {{ comment.author }}
+                </span>
+                <span>commented on</span>
+                <span>{{ new Date(comment.date).toLocaleDateString() }}</span>
+              </div>
+              <div class="p-4 text-sm text-[#c9d1d9]">
+                <p class="whitespace-pre-wrap font-sans">{{ comment.body }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="relative ml-4">
           <div
             class="absolute top-0 bottom-0 left-[15px] w-0.5 bg-[#21262d] -z-10"
@@ -111,12 +142,19 @@
 </template>
 
 <script setup lang="ts">
+interface CommentData {
+  author: string;
+  body: string;
+  date: string;
+}
+
 interface IssueData {
   number: number;
   title: string;
   state: string;
   url: string;
   date?: string;
+  comments?: CommentData[];
 }
 
 interface WeaveResult {
