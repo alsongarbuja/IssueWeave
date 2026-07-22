@@ -8,7 +8,7 @@ IssueWeave solves context-switching for maintainers of large open-source reposit
 
 * **🔗 Explicit Weaving:** Automatically aggregates cross-referenced issues, pull requests, and inline comment mentions into a single timeline.
 * **🧠 Semantic Weaving (WIP):** Leverages AI to analyze issue context and link related threads even when they aren't explicitly referenced.
-* **📊 Web Visualization (Planned):** Generates a clean, interactive web page to visualize the woven issue tree.
+* **📊 Web Visualization (WIP):** Generates a clean, interactive web page to visualize the woven issue tree.
 * **🛠️ Data Manipulation (Planned):** Filter, sort, and export woven issue data.
 
 
@@ -67,6 +67,27 @@ The primary command to weave issues together. It fetches the root issue and chro
 
 ```bash
 ./issueweave run alsongarbuja/IssueWeave 333
+```
+
+### `web`
+
+Simlar to `run` web command will fetch and weave threads of issue, but it will also start a simple http server at `port :8000` serving the result. You can then consume the local server api endpoint to visualize the data on your own or start the `issueweave-visualizer` web application
+
+```bash
+./issueweave web [owner/repo] [issueId]
+```
+
+**Arguments:**
+
+| Position | Argument | Description |
+| --- | --- | --- |
+| 1 | `[owner/repo]` | **Required**. The repository target (e.g., `alsongabuja/IssueWeave`). |
+| 2 | `[issueId]` | **Required**. The ID of the root issue to anchor the weave (e.g., `11234`). |
+
+**Example:**
+
+```bash
+./issueweave web alsongarbuja/IssueWeave 333
 ```
 
 ### `rate`
