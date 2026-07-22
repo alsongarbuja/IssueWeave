@@ -50,47 +50,49 @@ var runCmd = &cobra.Command{
 		client := getGithubClient()
 
 		// Fetch the main issue
-		err = fetchMainIssue(client, owner, repo, issueId)
+		main_issue, err := fetchMainIssue(client, owner, repo, issueId)
 		if err != nil {
 			fmt.Printf("Error fetching main issue: %v\n", err)
 			return
 		}
 
+		fmt.Print(main_issue)
+
 		// Fetch cross referenced issues
-		err = fetchCrossReferences(client, owner, repo, issueId)
+		direct_refs, comment_refs, err := fetchCrossReferences(client, owner, repo, issueId)
 		if err != nil {
 			fmt.Printf("Error fetching timeline: %v\n", err)
 			return
 		}
+
+		fmt.Print(direct_refs, comment_refs)
 	},
 }
 
 // fetchMainIssue retrieves the details of the root issue from GitHub.
 // It uses the provided client to query the specified owner and repo by issueId,
 // returning an error if the API request fails.
-func fetchMainIssue(client *github.Client, owner, repo string, issueId int) error {
+func fetchMainIssue(client *github.Client, owner, repo string, issueId int) (IssueData, error) {
 	ctx := context.Background()
 
 	issue, _, err := client.Issues.Get(ctx, owner, repo, issueId)
 	if err != nil {
-		return err
+		return IssueData{}, err
 	}
 
-	fmt.Println("========================================")
-	fmt.Println("              ROOT ISSUE                ")
-	fmt.Println("========================================")
-	fmt.Printf("[%s] Created\n", issue.GetCreatedAt().Format("2006-01-02 15:04"))
-	fmt.Printf(" - Issue #%d: %s\n", issue.GetNumber(), issue.GetTitle())
-	fmt.Printf(" - State: %s\n", issue.GetState())
-	fmt.Printf(" - URL: %s\n\n", issue.GetHTMLURL())
-
-	return nil
+	return IssueData{
+		Number: issue.GetNumber(),
+		Title: issue.GetTitle(),
+		State: issue.GetState(),
+		URL: issue.GetHTMLURL(),
+		Date: issue.GetCreatedAt().Format("2006-01-02 15:04"),
+	}, nil
 }
 
 // fetchCrossReferences paginates through the GitHub Timeline API for a specific issue
 // to identify and process both explicit cross-references and inline comment mentions.
 // It returns an error if the network request or pagination fails.
-func fetchCrossReferences(client *github.Client, owner, repo string, issueId int) error {
+func fetchCrossReferences(client *github.Client, owner, repo string, issueId int) ([]IssueData, []IssueData, error) {
 	ctx := context.Background()
 	opts := &github.ListOptions{PerPage: 100}
 
@@ -99,7 +101,7 @@ func fetchCrossReferences(client *github.Client, owner, repo string, issueId int
 	for {
 		events, resp, err := client.Issues.ListIssueTimeline(ctx, owner, repo, issueId, opts)
 		if err != nil {
-			return err
+			return []IssueData{}, []IssueData{}, err
 		}
 
 		allEvents = append(allEvents, events...)
@@ -118,9 +120,10 @@ func fetchCrossReferences(client *github.Client, owner, repo string, issueId int
 // to retrieve metadata for multiple issues simultaneously, bypassing REST rate limits.
 // It takes a map of deduplicated issue IDs and returns an error if the HTTP request
 // or JSON parsing fails.
-func fetchBatchedIssues(owner, repo string, uniqueIssues map[string]bool) error {
+func fetchBatchedIssues(owner, repo string, uniqueIssues map[string]bool) ([]IssueData, error) {
+	var comment_references []IssueData
 	if len(uniqueIssues) == 0 {
-		return nil
+		return comment_references, nil
 	}
 
 	var queryBuilder strings.Builder
@@ -147,12 +150,14 @@ func fetchBatchedIssues(owner, repo string, uniqueIssues map[string]bool) error 
 	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal payload: %w", err)
+		fmt.Errorf("failed to marshal payload: %w", err)
+		return comment_references, err
 	}
 
 	req, err := http.NewRequest("POST", "https://api.github.com/graphql", bytes.NewBuffer(payloadBytes))
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		fmt.Errorf("failed to create request: %w", err)
+		return comment_references, err
 	}
 
 	token := os.Getenv("GITHUB_TOKEN")
@@ -163,28 +168,31 @@ func fetchBatchedIssues(owner, repo string, uniqueIssues map[string]bool) error 
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to execute request: %w", err)
+		fmt.Errorf("failed to execute request: %w", err)
+		return comment_references, err
 	}
 	defer resp.Body.Close()
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
+		fmt.Errorf("failed to read response: %w", err)
+		return comment_references, err
 	}
 
 	var result map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &result); err != nil {
-		return fmt.Errorf("failed to parse JSON: %w", err)
+		fmt.Errorf("failed to parse JSON: %w", err)
+		return comment_references, err
 	}
 
 	dataMap, ok := result["data"].(map[string]interface{})
 	if !ok || dataMap == nil {
-		return fmt.Errorf("invalid GraphQL response format: %w", err)
+		return comment_references, fmt.Errorf("invalid GraphQL response format")
 	}
 
 	repoMap, ok := dataMap["repository"].(map[string]interface{})
 	if !ok || repoMap == nil {
-		return fmt.Errorf("repository data not found: %w", err)
+		return comment_references, fmt.Errorf("repository data not found: %w", err)
 	}
 
 	for key, issueDataInfer := range repoMap {
@@ -193,23 +201,27 @@ func fetchBatchedIssues(owner, repo string, uniqueIssues map[string]bool) error 
 		}
 
 		issueMap := issueDataInfer.(map[string]interface{})
-		issueNumber := strings.TrimPrefix(key, "issue")
+		issueNumberStr := strings.TrimPrefix(key, "issue")
+		issueNumber, _ := strconv.Atoi(issueNumberStr)
 
-		fmt.Printf(" - Issue #%s: %s\n", issueNumber, issueMap["title"])
-		fmt.Printf("   State: %s\n", issueMap["state"])
-		fmt.Printf("   URL: %s\n\n", issueMap["url"])
+		comment_references = append(comment_references, IssueData{
+			Number: issueNumber,
+			Title:  fmt.Sprintf("%v", issueMap["title"]),
+			State:  fmt.Sprintf("%v", issueMap["state"]),
+			URL:    fmt.Sprintf("%v", issueMap["url"]),
+		})
 	}
 
-	return nil
+	return comment_references, nil
 }
 
 // processEvents iterates through an issue's timeline to extract and display
 // explicitly referenced issues, as well as outbound mentions found within comments.
 // It uses the provided owner and repo to execute a batch fetch for any newly
 // discovered issue IDs.
-func processEvents(events []*github.Timeline, owner, repo string) error {
-	foundReferences := false
-	foundDirectReferences := 0
+func processEvents(events []*github.Timeline, owner, repo string) ([]IssueData, []IssueData, error) {
+	var direct_references []IssueData
+	var comment_references []IssueData
 
 	uniqueIssues := make(map[string]bool)
 	refRegex := regexp.MustCompile(`(?i)(?:^|\s)#(\d+)\b`)
@@ -219,50 +231,34 @@ func processEvents(events []*github.Timeline, owner, repo string) error {
 		if eventType == "cross-referenced" || eventType == "referenced" {
 			source := event.GetSource()
 
-			if (foundDirectReferences == 1) {
-				fmt.Println("----------------------------------------")
-				fmt.Println("           CROSS-REFERENCES             ")
-				fmt.Println("----------------------------------------")
-			}
-
 			if source != nil && source.GetIssue() != nil {
-				foundReferences = true
-				foundDirectReferences += 1
 				linkedIssue := source.GetIssue()
 
-				fmt.Printf("[%s] Cross-reference found:\n", event.GetCreatedAt().Format("2006-01-02 15:04"))
-				fmt.Printf(" - Type: %T\n", linkedIssue)
-				fmt.Printf(" - Issue #%d: %s\n", linkedIssue.GetNumber(), linkedIssue.GetTitle())
-				fmt.Printf(" - State: %s\n", linkedIssue.GetState())
-				fmt.Printf(" - URL: %s\n\n", linkedIssue.GetHTMLURL())
+				direct_references = append(direct_references, IssueData{
+					Number: linkedIssue.GetNumber(),
+					Title:  linkedIssue.GetTitle(),
+					State:  linkedIssue.GetState(),
+					URL:    linkedIssue.GetHTMLURL(),
+					Date:   event.GetCreatedAt().Format("2006-01-02 15:04"),
+				})
 			}
 		}
 
 		if eventType == "commented" {
-			body := event.GetBody()
-			matches := refRegex.FindAllStringSubmatch(body, -1)
+			matches := refRegex.FindAllStringSubmatch(event.GetBody(), -1)
 			for _, match := range matches {
-				issueNum := match[1]
-				uniqueIssues[issueNum] = true
+				uniqueIssues[match[1]] = true
 			}
 		}
 	}
 
 	if len(uniqueIssues) > 0 {
-		foundReferences = true
-		fmt.Println("----------------------------------------")
-		fmt.Println("       FOUND IN COMMENTS (BATCHED)      ")
-		fmt.Println("----------------------------------------")
-
-		err := fetchBatchedIssues(owner, repo, uniqueIssues)
+		var err error
+		comment_references, err = fetchBatchedIssues(owner, repo, uniqueIssues)
 		if err != nil {
-			fmt.Printf("Error fetching batched issues: %v\n", err)
+			return nil, nil, err
 		}
 	}
 
-	if !foundReferences {
-		fmt.Println("No cross-references or comment mentions found for this issue.")
-	}
-
-	return nil
+	return direct_references, comment_references, nil
 }
