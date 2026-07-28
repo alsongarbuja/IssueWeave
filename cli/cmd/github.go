@@ -263,7 +263,7 @@ func processEvents(events []*github.Timeline, owner, repo string) ([]IssueData, 
 		}
 
 		if eventType == "commented" {
-			matches := refRegex.FindAllStringSubmatch(event.GetBody(), -1)
+			matches := refRegex.FindAllStringSubmatch(parseIssueUrl(owner, repo, event.GetBody()), -1)
 			for _, match := range matches {
 				uniqueIssues[match[1]] = true
 			}
@@ -279,4 +279,16 @@ func processEvents(events []*github.Timeline, owner, repo string) ([]IssueData, 
 	}
 
 	return direct_references, comment_references, nil
+}
+
+
+func parseIssueUrl(owner, repo, commentBody string) string {
+	safeOwner := regexp.QuoteMeta(owner)
+	safeRepo := regexp.QuoteMeta(repo)
+
+	githubUrl := fmt.Sprintf(`https://github\.com/%s/%s/issues/(\d+/)?`, safeOwner, safeRepo)
+	issueUrlRegex := regexp.MustCompile(githubUrl)
+
+	updatedCommentBody := issueUrlRegex.ReplaceAllString(commentBody, "#$1")
+	return updatedCommentBody
 }
