@@ -90,11 +90,15 @@
                 </span>
                 <span>commented</span>
               </div>
-              <div class="p-3 text-sm text-[#c9d1d9] bg-[#0d1117]">
-                <p class="line-clamp-3 whitespace-pre-wrap font-sans">
+              <!-- <div
+                class="p-3 text-sm text-[#c9d1d9] bg-[#0d1117] line-clamp-3 whitespace-pre-wrap font-sans"
+                v-html="renderMarkdown(comment.body)"
+              /> -->
+              <!-- <div class="p-3 text-sm text-[#c9d1d9] bg-[#0d1117]">
+                <p class="">
                   {{ comment.body }}
                 </p>
-              </div>
+              </div> -->
             </div>
           </div>
         </div>
@@ -104,10 +108,30 @@
 </template>
 
 <script setup lang="ts">
+import { Marked } from "marked";
+import DOMPurify from "isomorphic-dompurify";
+
 interface CommentData {
   author: string;
   body: string;
   date: string;
+}
+
+const marked = new Marked({
+  gfm: true,
+  breaks: true,
+});
+
+function renderMarkdown(rawBody: string): string {
+  if (!rawBody) return "";
+
+  console.log(rawBody);
+
+  const rawHtml = marked.parse(rawBody) as string;
+
+  console.log(rawHtml);
+
+  return DOMPurify.sanitize(rawHtml);
 }
 
 defineProps<{

@@ -96,9 +96,10 @@
                 <span>commented on</span>
                 <span>{{ new Date(comment.date).toLocaleDateString() }}</span>
               </div>
-              <div class="p-4 text-sm text-[#c9d1d9]">
-                <p class="whitespace-pre-wrap font-sans">{{ comment.body }}</p>
-              </div>
+              <div
+                class="p-3 text-sm text-[#c9d1d9] bg-[#0d1117] line-clamp-3 whitespace-pre-wrap font-sans"
+                v-html="renderMarkdown(comment.body)"
+              />
             </div>
           </div>
         </div>
@@ -141,6 +142,47 @@
   </main>
 </template>
 
+<style scoped>
+.gfm-content :deep(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  display: block;
+  margin: 0.5rem 0;
+}
+
+.gfm-content :deep(a) {
+  color: #0969da;
+  text-decoration: none;
+}
+
+.gfm-content :deep(a:hover) {
+  text-decoration: underline;
+}
+
+.gfm-content :deep(pre) {
+  background-color: #f6f8fa;
+  padding: 0.8rem;
+  border-radius: 6px;
+  overflow-x: visible;
+  font-family: monospace;
+}
+
+.gfm-content :deep(code) {
+  background-color: rgba(175, 184, 193, 0.2);
+  padding: 0.2em 0.4em;
+  border-radius: 6px;
+  font-size: 85%;
+}
+
+.gfm-content :deep(blockquote) {
+  margin: 0;
+  padding: 0 1em;
+  color: #57606a;
+  border-left: 0.25em solid #d0d7de;
+}
+</style>
+
 <script setup lang="ts">
 interface CommentData {
   author: string;
@@ -166,4 +208,17 @@ interface WeaveResult {
 const { data, pending, error } = await useFetch<WeaveResult>(
   "http://localhost:8080/api/weave",
 );
+
+const { renderMarkdown } = useMarkdown();
+
+useHead({
+  title: "Issue Weave",
+  meta: [
+    {
+      name: "description",
+      content:
+        "An AI-powered CLI tool that weaves together scattered GitHub issues into a single, cohesive timeline.",
+    },
+  ],
+});
 </script>
